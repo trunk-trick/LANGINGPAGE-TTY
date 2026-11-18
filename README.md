@@ -148,8 +148,8 @@ Or simply run `earth-intro`, which does not touch the timer.
 The installer also adds a small block at the **top** of `~/.bashrc`:
 
 ```bash
-EARTH_SLEEP_ENABLE="${EARTH_SLEEP_ENABLE:-0}"       # 1 = enable
-EARTH_SLEEP_SECONDS="${EARTH_SLEEP_SECONDS:-300}"   # idle seconds
+EARTH_SLEEP_ENABLE=0        # 1 = enable, 0 = disable
+EARTH_SLEEP_SECONDS=300     # idle seconds
 ```
 
 Set `EARTH_SLEEP_ENABLE` to `1` and open a new terminal. After
