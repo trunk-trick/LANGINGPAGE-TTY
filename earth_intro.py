@@ -123,46 +123,93 @@ def revealed(seq, n: int, nlines: int) -> list[str]:
     return out
 
 
-def compute_layout(cols: int, rows: int, text_lines: list[str]) -> dict:
+def fit_size(canvas_w: int, canvas_h: int, box_w: int, box_h: int) -> tuple[int, int]:
+    scale = min(box_w / canvas_w, box_h / canvas_h, 1.0)
+    return max(1, int(canvas_w * scale)), max(1, int(canvas_h * scale))
+
+
+def compute_layout(cols: int, rows: int, text_lines: list[str],
+                   canvas_w: int, canvas_h: int) -> dict:
     need = max(len(line) for line in text_lines)
-    gap = 3
-    block_h = len(text_lines) + 2          # text + blank + hint
-    if cols - need - gap >= 30:
-        ew = cols - need - gap
+    gap = 2                                  # space between earth and text
+    margin = 3                               # keep the text off the screen edge
+    block_h = len(text_lines) + 2            # text + blank + hint
+    avail_w = cols - need - gap - 2 * margin
+
+    if avail_w >= 30:
+        ow, oh = fit_size(canvas_w, canvas_h, avail_w, rows)
+        content_w = ow + gap + need
+        left = max(0, (cols - content_w) // 2)
         return {
-            "ew": ew, "eh": rows, "text_x": ew + gap,
+            "box_w": avail_w, "box_h": rows, "ew": ow, "eh": oh,
+            "earth_x": left, "earth_y": max(0, (rows - oh) // 2),
+            "text_x": left + ow + gap,
             "text_top": max(1, (rows - block_h) // 2),
         }
+
     # too narrow for a side panel: put the text under the earth
-    eh = max(1, rows - block_h - 1)
+    box_w = max(1, cols - 2 * margin)
+    box_h = max(1, rows - block_h - 1)
+    ow, oh = fit_size(canvas_w, canvas_h, box_w, box_h)
     return {
-        "ew": cols, "eh": eh,
+        "box_w": box_w, "box_h": box_h, "ew": ow, "eh": oh,
+        "earth_x": max(0, (cols - ow) // 2),
+        "earth_y": max(0, (box_h - oh) // 2),
         "text_x": max(0, (cols - need) // 2),
-        "text_top": eh,
+        "text_top": box_h,
     }
 
 
-def prepare_earth(frames: list[bytes], ew: int, eh: int) -> list[list[str]]:
-    """Pre-fit every frame into an ew x eh box, centred, aspect preserved."""
-    cw, ch = A.canvas_size(frames)
+def prepare_frames(frames: list[bytes]):
+    """Parse frames and crop them to their union ink bounding box.
+
+    The raw earth frames are 84 columns wide but the drawing only reaches
+    column 64; keeping the padding creates a big visual gap next to the text.
+    """
+    parsed = [A.frame_lines(fr) for fr in frames]
+    left = top = 10 ** 9
+    right = bottom = -1
+    for lines in parsed:
+        for y, line in enumerate(lines):
+            if line.strip():
+                left = min(left, len(line) - len(line.lstrip(" ")))
+                right = max(right, len(line.rstrip()))
+                top = min(top, y)
+                bottom = max(bottom, y)
+    if right <= left or bottom < top:
+        cw, ch = A.canvas_size(frames)
+        return parsed, cw, ch
+
+    out: list[list[str]] = []
+    for lines in parsed:
+        norm = [line.ljust(right) for line in lines]
+        norm += [""] * (bottom + 1 - len(norm))
+        out.append([line[left:right] for line in norm[top:bottom + 1]])
+    return out, right - left, bottom - top + 1
+
+
+def prepare_earth(lines_list: list[list[str]], canvas_w: int, canvas_h: int,
+                  box_w: int, box_h: int) -> list[list[str]]:
+    """Pre-fit every frame tightly into the box, aspect preserved."""
     blocks: list[list[str]] = []
-    for fr in frames:
-        out, ow, oh = A.fit_lines(A.frame_lines(fr), cw, ch, ew, eh)
-        top = (eh - oh) // 2
-        left = (ew - ow) // 2
-        block = ([" " * ew] * top
-                 + [" " * left + row + " " * (ew - left - ow) for row in out]
-                 + [" " * ew] * (eh - top - oh))
-        blocks.append(block)
+    for lines in lines_list:
+        out, _ow, _oh = A.fit_lines(lines, canvas_w, canvas_h, box_w, box_h)
+        blocks.append(out)
     return blocks
 
 
 def compose(block, disp, layout, cols, rows, hint_on, cursor_line, cursor) -> list[str]:
     grid = [[" "] * cols for _ in range(rows)]
 
-    for y, row in enumerate(block[:rows]):
-        for x, ch in enumerate(row[:cols]):
-            grid[y][x] = ch
+    ex, ey = layout["earth_x"], layout["earth_y"]
+    for y, row in enumerate(block):
+        gy = ey + y
+        if not 0 <= gy < rows:
+            continue
+        for x, ch in enumerate(row):
+            gx = ex + x
+            if 0 <= gx < cols:
+                grid[gy][gx] = ch
 
     tx = layout["text_x"]
     ty0 = layout["text_top"]
@@ -296,8 +343,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         cols, rows = term_size()
-        layout = compute_layout(cols, rows, lines)
-        blocks = prepare_earth(frames, layout["ew"], layout["eh"])
+        frame_lines_list, canvas_w, canvas_h = prepare_frames(frames)
+        layout = compute_layout(cols, rows, lines, canvas_w, canvas_h)
+        blocks = prepare_earth(frame_lines_list, canvas_w, canvas_h,
+                               layout["box_w"], layout["box_h"])
         last_size = (cols, rows)
         last_state = None
         mode = "boot"
@@ -314,8 +363,9 @@ def main(argv: list[str] | None = None) -> int:
 
             cols, rows = term_size()
             if (cols, rows) != last_size:
-                layout = compute_layout(cols, rows, lines)
-                blocks = prepare_earth(frames, layout["ew"], layout["eh"])
+                layout = compute_layout(cols, rows, lines, canvas_w, canvas_h)
+                blocks = prepare_earth(frame_lines_list, canvas_w, canvas_h,
+                                       layout["box_w"], layout["box_h"])
                 last_size = (cols, rows)
                 last_state = None
 
