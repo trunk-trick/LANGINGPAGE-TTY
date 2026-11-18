@@ -129,21 +129,26 @@ def fit_size(canvas_w: int, canvas_h: int, box_w: int, box_h: int) -> tuple[int,
 
 
 def compute_layout(cols: int, rows: int, text_lines: list[str],
-                   canvas_w: int, canvas_h: int) -> dict:
+                   canvas_w: int, canvas_h: int,
+                   gap: int = 5, spread: int = 2) -> dict:
     need = max(len(line) for line in text_lines)
-    gap = 5                                  # minimum space between earth and text
-    margin = 4                               # keep both off the screen edges
+    margin = 3                               # never get closer than this to an edge
     block_h = len(text_lines) + 2            # text + blank + hint
 
-    # hero layout: earth anchored left, text anchored right
-    text_x = max(0, cols - need - margin)
-    box_w = text_x - margin - gap
-    if box_w >= 30:
-        ow, oh = fit_size(canvas_w, canvas_h, box_w, rows)
+    # Start from the centred composition, then nudge the earth left and the
+    # text right by at most `spread` columns each (never into the edge margin).
+    avail_w = cols - need - gap - 2 * margin
+    if avail_w >= 30:
+        ow, oh = fit_size(canvas_w, canvas_h, avail_w, rows)
+        content_w = ow + gap + need
+        base_left = max(0, (cols - content_w) // 2)
+        base_right = cols - base_left - content_w
+        shift = max(0, min(spread, base_left - margin, base_right - margin))
+        left = base_left - shift
         return {
-            "box_w": box_w, "box_h": rows, "ew": ow, "eh": oh,
-            "earth_x": margin, "earth_y": max(0, (rows - oh) // 2),
-            "text_x": text_x,
+            "box_w": avail_w, "box_h": rows, "ew": ow, "eh": oh,
+            "earth_x": left, "earth_y": max(0, (rows - oh) // 2),
+            "text_x": left + ow + gap + 2 * shift,
             "text_top": max(1, (rows - block_h) // 2),
         }
 
@@ -287,12 +292,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--asset", default=str(HERE / "assets" / "earth.ansi"))
     ap.add_argument("--user", default=os.environ.get("USER") or getpass.getuser())
     ap.add_argument("--cps", type=float, default=TYPE_CPS, help="typing speed")
+    ap.add_argument("--gap", type=int, default=5,
+                    help="minimum columns between the earth and the text (default 5)")
+    ap.add_argument("--spread", type=int, default=2,
+                    help="nudge each side outward by up to N columns (default 2)")
     ap.add_argument("--no-wait", action="store_true",
                     help="exit once the text is typed (for testing)")
     args = ap.parse_args(argv)
 
     if args.cps <= 0:
         ap.error("--cps must be > 0")
+    if args.gap < 0 or args.spread < 0:
+        ap.error("--gap and --spread must be >= 0")
 
     try:
         frames = A.read_file_frames(args.asset)
@@ -344,7 +355,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         cols, rows = term_size()
         frame_lines_list, canvas_w, canvas_h = prepare_frames(frames)
-        layout = compute_layout(cols, rows, lines, canvas_w, canvas_h)
+        layout = compute_layout(cols, rows, lines, canvas_w, canvas_h,
+                                gap=args.gap, spread=args.spread)
         blocks = prepare_earth(frame_lines_list, canvas_w, canvas_h,
                                layout["box_w"], layout["box_h"])
         last_size = (cols, rows)
@@ -363,7 +375,8 @@ def main(argv: list[str] | None = None) -> int:
 
             cols, rows = term_size()
             if (cols, rows) != last_size:
-                layout = compute_layout(cols, rows, lines, canvas_w, canvas_h)
+                layout = compute_layout(cols, rows, lines, canvas_w, canvas_h,
+                                        gap=args.gap, spread=args.spread)
                 blocks = prepare_earth(frame_lines_list, canvas_w, canvas_h,
                                        layout["box_w"], layout["box_h"])
                 last_size = (cols, rows)
