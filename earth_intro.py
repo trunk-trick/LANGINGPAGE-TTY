@@ -131,19 +131,19 @@ def fit_size(canvas_w: int, canvas_h: int, box_w: int, box_h: int) -> tuple[int,
 def compute_layout(cols: int, rows: int, text_lines: list[str],
                    canvas_w: int, canvas_h: int) -> dict:
     need = max(len(line) for line in text_lines)
-    gap = 5                                  # space between earth and text
-    margin = 3                               # keep the text off the screen edge
+    gap = 5                                  # minimum space between earth and text
+    margin = 4                               # keep both off the screen edges
     block_h = len(text_lines) + 2            # text + blank + hint
-    avail_w = cols - need - gap - 2 * margin
 
-    if avail_w >= 30:
-        ow, oh = fit_size(canvas_w, canvas_h, avail_w, rows)
-        content_w = ow + gap + need
-        left = max(0, (cols - content_w) // 2)
+    # hero layout: earth anchored left, text anchored right
+    text_x = max(0, cols - need - margin)
+    box_w = text_x - margin - gap
+    if box_w >= 30:
+        ow, oh = fit_size(canvas_w, canvas_h, box_w, rows)
         return {
-            "box_w": avail_w, "box_h": rows, "ew": ow, "eh": oh,
-            "earth_x": left, "earth_y": max(0, (rows - oh) // 2),
-            "text_x": left + ow + gap,
+            "box_w": box_w, "box_h": rows, "ew": ow, "eh": oh,
+            "earth_x": margin, "earth_y": max(0, (rows - oh) // 2),
+            "text_x": text_x,
             "text_top": max(1, (rows - block_h) // 2),
         }
 
