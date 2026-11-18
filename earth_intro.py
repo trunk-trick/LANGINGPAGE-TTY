@@ -131,7 +131,7 @@ def fit_size(canvas_w: int, canvas_h: int, box_w: int, box_h: int) -> tuple[int,
 def compute_layout(cols: int, rows: int, text_lines: list[str],
                    canvas_w: int, canvas_h: int) -> dict:
     need = max(len(line) for line in text_lines)
-    gap = 2                                  # space between earth and text
+    gap = 5                                  # space between earth and text
     margin = 3                               # keep the text off the screen edge
     block_h = len(text_lines) + 2            # text + blank + hint
     avail_w = cols - need - gap - 2 * margin
