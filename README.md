@@ -152,6 +152,13 @@ EARTH_SLEEP_ENABLE=0        # 1 = enable, 0 = disable
 EARTH_SLEEP_SECONDS=300     # idle seconds
 ```
 
+**These two values are read when the screensaver watcher starts.** Changing
+them takes effect only in a **new terminal**. `source ~/.bashrc` updates the
+shell variable, but it cannot restart the long-running watcher; inside the
+wrapped shell the top block is skipped anyway (`EARTH_SHELL_WRAPPED=1`).
+`exec bash` does not help either, for the same reason. Close the terminal and
+open a new one.
+
 Set `EARTH_SLEEP_ENABLE` to `1` and open a new terminal. After
 `EARTH_SLEEP_SECONDS` without keyboard input at the prompt, the earth appears
 with:
@@ -295,13 +302,25 @@ cannot shrink beyond the smallest usable size.
 Manual runs do not update the timestamp. Only interactive terminal opens do.
 Reset with `rm ~/.local/state/asciiplay/last-open`.
 
+**I changed EARTH_SLEEP_SECONDS and sourced ~/.bashrc, but nothing happened**
+
+The watcher is a long-running process. Its `--idle` value is fixed when the
+watcher starts, so `source ~/.bashrc` cannot change it. Inside the wrapped
+shell the top block is skipped because `EARTH_SHELL_WRAPPED=1`; `exec bash`
+does not help either. Open a **new terminal**. To see the value actually in
+use:
+
+```bash
+pgrep -af earth_shell.py
+```
+
 **The idle screensaver never appears**
 
 - Check that the block at the **top** of `~/.bashrc` has
   `EARTH_SLEEP_ENABLE=1` and a positive `EARTH_SLEEP_SECONDS`.
 - It only runs at the prompt. A foreground command suppresses it by design.
 - Check `ls -l ~/tools/asciiplay/earth_shell.py`; it must be executable.
-- Open a new terminal after changing the setting.
+- Open a new terminal after changing the setting (`source` is not enough).
 - If `EARTH_SHELL_WRAPPED` is set in your environment, the wrapper is already
   active in that session; a nested shell will not wrap again.
 

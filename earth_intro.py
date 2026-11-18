@@ -92,7 +92,8 @@ def help_content(width: int) -> list[str]:
     out.append("    EARTH_INTRO=0      disable the splash")
     out.append("    earth              looping earth only")
     out.append("    rm ~/.local/state/asciiplay/last-open    reset the timer")
-    out.append("")
+    out.append("Idle sleep: EARTH_SLEEP_ENABLE / EARTH_SLEEP_SECONDS")
+    out.append("(top of ~/.bashrc; changing needs a NEW terminal, not source)")
     out.append("Feedback: 2451421621@qq.com")
     out.append("[ Enter ] start the shell      [ any key ] back")
     return out
