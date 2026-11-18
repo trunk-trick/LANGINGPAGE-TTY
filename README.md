@@ -26,10 +26,13 @@ Made by **Trunk Trick** · Feedback: **2451421621@qq.com**
 - English help page (`h`) with interval, commands and feedback details
 - Two-hour cooldown based on the last interactive terminal open
 - Manual replays (`earth-intro`) never touch the cooldown timer
+- Optional idle screensaver: after N seconds without keyboard input at the
+  prompt, the earth appears with "Emmm... the world is sleeping"; any key
+  returns to the shell
 - Scales the earth to fit the window instead of clipping it; stacks the text
   below the earth on very narrow terminals
 - Fully restores the terminal on exit (alternate screen, cursor, line wrapping)
-- No root, no background daemons, no network access at runtime
+- No root, no network access at runtime
 
 ## Requirements
 
@@ -52,11 +55,13 @@ Open a **new terminal** to see the splash.
 
 The installer:
 
-- copies the player and assets to `~/tools/asciiplay/`
+- copies the player, assets and the idle-sleep proxy to `~/tools/asciiplay/`
 - creates `~/.local/bin/asciiplay` and `~/.local/bin/earth-intro`
-- appends a marked block to `~/.bashrc`, after making a timestamped backup
+- adds a marked idle-sleep block at the **top** of `~/.bashrc` (disabled by
+  default) and a marked boot-screen block at the **end**
+- makes one timestamped backup before changing `~/.bashrc`
 - verifies the result with `bash -n` and restores the backup if it fails
-- is idempotent: running it again does not duplicate the block
+- is idempotent: running it again does not duplicate either block
 
 It does not need `sudo` and does not modify anything outside your home
 directory.
@@ -138,6 +143,55 @@ rm ~/.local/state/asciiplay/last-open
 
 Or simply run `earth-intro`, which does not touch the timer.
 
+## Idle screensaver
+
+The installer also adds a small block at the **top** of `~/.bashrc`:
+
+```bash
+EARTH_SLEEP_ENABLE="${EARTH_SLEEP_ENABLE:-0}"       # 1 = enable
+EARTH_SLEEP_SECONDS="${EARTH_SLEEP_SECONDS:-300}"   # idle seconds
+```
+
+Set `EARTH_SLEEP_ENABLE` to `1` and open a new terminal. After
+`EARTH_SLEEP_SECONDS` without keyboard input at the prompt, the earth appears
+with:
+
+```
+Emmm...
+the world is sleeping
+```
+
+Any key wakes it and returns to the shell. The wake key is consumed by the
+screensaver.
+
+Details:
+
+- Typing counts as activity, even before you press Enter. The countdown resets
+  on every keystroke.
+- It only triggers while the shell itself owns the terminal. A foreground
+  command (`vim`, `top`, a build, `sleep`) suppresses it.
+- Preview it immediately without waiting:
+
+  ```bash
+  earth-sleep
+  ```
+
+- `EARTH_SLEEP_SECONDS` must be a positive integer.
+
+The screensaver needs to see every keystroke at the prompt, which a plain
+shell cannot do. The block therefore starts `earth_shell.py`, a small PTY
+proxy, which re-execs the shell as a login shell inside the proxy and forwards
+input, output, resizes and signals. `EARTH_SHELL_WRAPPED` prevents it from
+wrapping itself again.
+
+If anything about the wrapped shell misbehaves, set `EARTH_SLEEP_ENABLE=0` and
+open a new terminal; the feature is entirely opt-in. You can also remove both
+blocks with `./install.sh --uninstall`.
+
+Note: when enabled, `~/.profile` runs twice (once partially in the outer
+shell, once fully inside the proxy). Startup files are expected to be
+idempotent. `~/.bashrc` itself runs once inside the proxy.
+
 ## Deploy to a remote host
 
 From your local clone:
@@ -180,7 +234,7 @@ Local:
 ./install.sh --uninstall
 ```
 
-This removes the marked block from `~/.bashrc` (after a backup) and deletes
+This removes both marked blocks from `~/.bashrc` (after a backup) and deletes
 the two symlinks. The files in `~/tools/asciiplay` and the cooldown state are
 left behind; remove them manually if you want:
 
@@ -197,12 +251,14 @@ Remote:
 ## Repository layout
 
 ```
-asciiplay.py        generic ascii.live stream / file player (--fit, --center, ...)
-earth_intro.py      the boot screen: earth + typed greeting + help page
-assets/earth.ansi   121-frame earth loop, frame markers included
-bashrc-snippet.sh   the exact ~/.bashrc block appended by the installer
-install.sh          local installer / uninstaller
-deploy.sh           remote deployment helper
+asciiplay.py             generic ascii.live stream / file player (--fit, --center, ...)
+earth_intro.py           boot screen + idle screensaver renderer
+earth_shell.py           PTY proxy that shows the screensaver when idle
+assets/earth.ansi        121-frame earth loop, frame markers included
+bashrc-snippet.sh        the boot-screen block appended at the end of ~/.bashrc
+bashrc-sleep-snippet.sh  the idle-sleep block inserted at the top of ~/.bashrc
+install.sh               local installer / uninstaller
+deploy.sh                remote deployment helper
 ```
 
 ## Troubleshooting
@@ -238,6 +294,22 @@ cannot shrink beyond the smallest usable size.
 
 Manual runs do not update the timestamp. Only interactive terminal opens do.
 Reset with `rm ~/.local/state/asciiplay/last-open`.
+
+**The idle screensaver never appears**
+
+- Check that the block at the **top** of `~/.bashrc` has
+  `EARTH_SLEEP_ENABLE=1` and a positive `EARTH_SLEEP_SECONDS`.
+- It only runs at the prompt. A foreground command suppresses it by design.
+- Check `ls -l ~/tools/asciiplay/earth_shell.py`; it must be executable.
+- Open a new terminal after changing the setting.
+- If `EARTH_SHELL_WRAPPED` is set in your environment, the wrapper is already
+  active in that session; a nested shell will not wrap again.
+
+**The shell behaves differently after enabling the screensaver**
+
+The proxy re-execs the shell as a login shell inside a PTY. Set
+`EARTH_SLEEP_ENABLE=0` and open a new terminal to go back to the normal shell.
+`./install.sh --uninstall` removes both blocks.
 
 ## Credits and license
 

@@ -35,6 +35,8 @@ import asciiplay as A  # noqa: E402
 
 FPS = 14.2857          # the source animation's own rate (70 ms/frame)
 TYPE_CPS = 50.0        # characters per second — fast, but still one by one
+TYPE_CPS_SLEEP = 12.0  # slower reveal for the idle screensaver
+SLEEP_TEXT = ["Emmm...", "the world is sleeping"]
 HINT = "[Enter] start  [h] help"
 HINT_BLINK = 0.55      # seconds per half-cycle
 
@@ -130,10 +132,11 @@ def fit_size(canvas_w: int, canvas_h: int, box_w: int, box_h: int) -> tuple[int,
 
 def compute_layout(cols: int, rows: int, text_lines: list[str],
                    canvas_w: int, canvas_h: int,
-                   gap: int = 5, spread: int = 2) -> dict:
+                   gap: int = 5, spread: int = 2,
+                   reserve_hint: bool = True) -> dict:
     need = max(len(line) for line in text_lines)
     margin = 3                               # never get closer than this to an edge
-    block_h = len(text_lines) + 2            # text + blank + hint
+    block_h = len(text_lines) + (2 if reserve_hint else 0)  # text + blank + hint
 
     # Start from the centred composition, then nudge the earth left and the
     # text right by at most `spread` columns each (never into the edge margin).
@@ -291,7 +294,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Earth boot screen with typed greeting.")
     ap.add_argument("--asset", default=str(HERE / "assets" / "earth.ansi"))
     ap.add_argument("--user", default=os.environ.get("USER") or getpass.getuser())
-    ap.add_argument("--cps", type=float, default=TYPE_CPS, help="typing speed")
+    ap.add_argument("--cps", type=float, default=None, help="typing speed")
+    ap.add_argument("--sleep", action="store_true",
+                    help="idle screensaver mode: 'Emmm... the world is sleeping', "
+                         "exit on any key")
     ap.add_argument("--gap", type=int, default=5,
                     help="minimum columns between the earth and the text (default 5)")
     ap.add_argument("--spread", type=int, default=2,
@@ -300,6 +306,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="exit once the text is typed (for testing)")
     args = ap.parse_args(argv)
 
+    if args.cps is None:
+        args.cps = TYPE_CPS_SLEEP if args.sleep else TYPE_CPS
     if args.cps <= 0:
         ap.error("--cps must be > 0")
     if args.gap < 0 or args.spread < 0:
@@ -314,7 +322,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"earth_intro: no frames in {args.asset}", file=sys.stderr)
         return 2
 
-    lines = greeting(args.user)
+    lines = SLEEP_TEXT if args.sleep else greeting(args.user)
     seq, times, total = build_sequence(lines, args.cps)
 
     tty_out = sys.stdout.isatty()
@@ -356,7 +364,8 @@ def main(argv: list[str] | None = None) -> int:
         cols, rows = term_size()
         frame_lines_list, canvas_w, canvas_h = prepare_frames(frames)
         layout = compute_layout(cols, rows, lines, canvas_w, canvas_h,
-                                gap=args.gap, spread=args.spread)
+                                gap=args.gap, spread=args.spread,
+                                reserve_hint=not args.sleep)
         blocks = prepare_earth(frame_lines_list, canvas_w, canvas_h,
                                layout["box_w"], layout["box_h"])
         last_size = (cols, rows)
@@ -376,7 +385,8 @@ def main(argv: list[str] | None = None) -> int:
             cols, rows = term_size()
             if (cols, rows) != last_size:
                 layout = compute_layout(cols, rows, lines, canvas_w, canvas_h,
-                                        gap=args.gap, spread=args.spread)
+                                        gap=args.gap, spread=args.spread,
+                                        reserve_hint=not args.sleep)
                 blocks = prepare_earth(frame_lines_list, canvas_w, canvas_h,
                                        layout["box_w"], layout["box_h"])
                 last_size = (cols, rows)
@@ -391,19 +401,22 @@ def main(argv: list[str] | None = None) -> int:
                 n = min(len(seq), bisect.bisect_right(times, elapsed))
                 done = n >= len(seq)
                 frame_i = int(elapsed * FPS) % len(frames)
-                hint_on = (not done) or (int((elapsed - total) / HINT_BLINK) % 2 == 0)
+                hint_on = (not args.sleep) and (
+                    (not done) or (int((elapsed - total) / HINT_BLINK) % 2 == 0))
                 cursor_line = seq[n][0] if n < len(seq) else None
 
                 state = ("boot", n, frame_i, hint_on, cols, rows, done)
                 if state != last_state:
                     disp = revealed(seq, n, len(lines))
                     draw(compose(blocks[frame_i], disp, layout, cols, rows,
-                                 hint_on, cursor_line, not done))
+                                 hint_on, cursor_line, (not done) and not args.sleep))
                     last_state = state
 
             if interactive:
                 key = read_key(fd, 0.004)
                 if key:
+                    if args.sleep:          # any key wakes from the screensaver
+                        break
                     enter = key in (b"\r", b"\n")
                     if mode == "help":
                         if enter:
